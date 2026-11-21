@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Virtual Charger Farm — FastAPI Control Plane (routes only).
-Main entry point. Run with: uvicorn control:app --host 0.0.0.0 --port 8086
+Main entry point. Run with: uvicorn control:app --host 0.0.0.0 --port 8087
 """
 
 import asyncio
@@ -60,6 +60,13 @@ async def _metrics_broadcast_loop():
     while True:
         await asyncio.sleep(2)
         farm_metrics.broadcast_metrics()
+
+
+# ─── Health ──────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 # ─── Web UI ──────────────────────────────────────────────────────────────────
@@ -200,6 +207,9 @@ async def api_list_scenarios():
     return list_scenarios()
 
 
+# Canonical: POST /api/scenarios/{name}. The legacy /api/scenario/{name}/start
+# (used by main.py and static/farm.js) is accepted as an alias.
+@app.post("/api/scenario/{name}/start")
 @app.post("/api/scenarios/{name}")
 async def api_run_scenario(name: str, request: Request):
     if name not in SCENARIOS:
@@ -209,6 +219,10 @@ async def api_run_scenario(name: str, request: Request):
     body = await request.json() if request.headers.get("content-type") == "application/json" else {}
     intensity = body.get("intensity", "medium")
     params = body.get("params", {})
+    ocpp_version = str(body.get("ocpp_version", params.get("ocpp_version", "1.6")))
+    if ocpp_version not in ("1.6", "2.0.1"):
+        raise HTTPException(400, "ocpp_version must be '1.6' or '2.0.1'")
+    params = {**params, "ocpp_version": ocpp_version}
     scenario_cls = SCENARIOS[name]
     scenario = scenario_cls(farm, intensity, **params)
     farm.active_scenario = scenario
@@ -223,23 +237,29 @@ async def api_run_scenario(name: str, request: Request):
         except Exception as e:
             farm_metrics.log_event("error", f"scenario:{name}", f"Scenario failed: {e}")
         finally:
+            try:
+                await asyncio.shield(scenario.cleanup())
+            except Exception:
+                pass
             farm.active_scenario = None
             farm.scenario_task = None
 
     farm.scenario_task = asyncio.create_task(run_and_report())
-    return {"started": name, "intensity": intensity}
+    return {"started": name, "intensity": intensity, "ocpp_version": ocpp_version}
 
 
 @app.delete("/api/scenarios/active")
 async def api_stop_scenario():
     if not farm.active_scenario:
         raise HTTPException(404, "No active scenario")
-    farm.active_scenario.cancel()
+    scenario = farm.active_scenario
+    scenario.cancel()
     if farm.scenario_task:
         farm.scenario_task.cancel()
-    name = farm.active_scenario.name
+    name = scenario.name
     farm.active_scenario = None
     farm.scenario_task = None
+    await scenario.cleanup()          # DELETE used to leave every spawned charger connected
     return {"stopped": name}
 
 
@@ -339,7 +359,8 @@ async def api_update_environment(request: Request):
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    port = int(os.environ.get("PORT", "8086"))
+    # Single UI port: FARM_UI_PORT wins, then PORT, default 8087.
+    port = int(os.environ.get("FARM_UI_PORT") or os.environ.get("PORT") or "8087")
     host = os.environ.get("HOST", "0.0.0.0")
     uvicorn.run("control:app", host=host, port=port, log_level="info", access_log=False)
 

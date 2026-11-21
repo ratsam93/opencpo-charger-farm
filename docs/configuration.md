@@ -25,7 +25,7 @@ The farm runs a control plane API for managing virtual chargers:
 | Variable | Default | Description |
 |---|---|---|
 | `CONTROL_HOST` | `0.0.0.0` | Control API bind address |
-| `CONTROL_PORT` | `8086` | Control API port |
+| `FARM_UI_PORT` | `8087` | Control API port |
 
 ## Farm API Reference
 
@@ -116,7 +116,7 @@ The `MAXPOWER_QUIRKS` preset can be applied to simulate known real-world charger
 
 Apply via scenario or API:
 ```bash
-curl -X POST http://localhost:8086/chargers \
+curl -X POST http://localhost:8087/chargers \
   -d '{"cp_id":"QUIRK-001", "quirks": "maxpower"}'
 ```
 
@@ -128,7 +128,7 @@ Run the farm in Docker:
 docker run -e OCPP_URL=ws://host.docker.internal:9100/ocpp/VIRT-001 \
            -e CP_ID=VIRT-001 \
            -e MAX_KW=120 \
-           -p 8086:8086 \
+           -p 8087:8087 \
            ocpp-charger-farm
 ```
 
@@ -140,7 +140,7 @@ services:
     image: ocpp-charger-farm
     environment:
       OCPP_URL: ws://ocpp-core:9100/ocpp/
-      CONTROL_PORT: 8086
+      FARM_UI_PORT: 8087
     ports:
-      - "8086:8086"
+      - "8087:8087"
 ```

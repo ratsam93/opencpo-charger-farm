@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Virtual Charger Farm — Web UI (optional, development only).
-NOT the primary entry point. The production entry point is control.py (port 8086).
+NOT the primary entry point. The production entry point is control.py.
 
 Run web UI with: uvicorn main:app --host 127.0.0.1 --port 8087
-Run production with: uvicorn control:app --host 0.0.0.0 --port 8086
+Run production with: python control.py   (UI port: FARM_UI_PORT, else PORT, default 8087)
 """
 
 import asyncio
@@ -243,6 +243,11 @@ async def _metrics_loop():
 
 # ─── Web UI ──────────────────────────────────────────────────────────────────
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     profiles = list_profiles()
@@ -411,8 +416,11 @@ async def api_scenario_start(name: str, request: Request):
         await api_farm_start(request)
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
     intensity = body.get("intensity", "medium")
+    ocpp_version = str(body.get("ocpp_version", "1.6"))
+    if ocpp_version not in ("1.6", "2.0.1"):
+        raise HTTPException(400, "ocpp_version must be '1.6' or '2.0.1'")
     scenario_cls = SCENARIOS[name]
-    scenario = scenario_cls(farm, intensity)
+    scenario = scenario_cls(farm, intensity, ocpp_version=ocpp_version)
     farm.active_scenario = scenario
 
     async def _run():
@@ -421,11 +429,15 @@ async def api_scenario_start(name: str, request: Request):
         except Exception as e:
             farm_metrics.log_event("error", f"scenario:{name}", str(e))
         finally:
+            try:
+                await asyncio.shield(scenario.cleanup())
+            except Exception:
+                pass
             farm.active_scenario = None
             farm.scenario_task = None
 
     farm.scenario_task = asyncio.create_task(_run())
-    return {"started": name, "intensity": intensity}
+    return {"started": name, "intensity": intensity, "ocpp_version": ocpp_version}
 
 
 # ─── API: Reconnect Storm ────────────────────────────────────────────────────
@@ -444,7 +456,7 @@ async def api_reconnect_storm():
 
 
 def main():
-    port = int(os.environ.get("FARM_UI_PORT", "8087"))
+    port = int(os.environ.get("FARM_UI_PORT") or os.environ.get("PORT") or "8087")
     host = os.environ.get("HOST", "0.0.0.0")
     uvicorn.run("main:app", host=host, port=port, log_level="info", access_log=False)
 

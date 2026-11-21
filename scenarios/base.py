@@ -13,6 +13,7 @@ from profiles import QuirkConfig
 log = logging.getLogger(__name__)
 
 # Intensity levels
+DEFAULT_PROFILES = {"1.6": "ENC-DCL120B-16", "2.0.1": "ENC-DCL120B"}
 INTENSITY_COUNTS = {"low": 5, "medium": 20, "high": 50, "extreme": 100}
 
 
@@ -81,27 +82,42 @@ class BaseScenario:
         farm_metrics.log_event("info", f"scenario:{self.name}", msg)
         self._result.events.append({"time": time.time(), "msg": msg})
 
-    async def _spawn_charger(self, cp_id: str, profile_name: str = "ENC-DCL120B-16",
+    @property
+    def ocpp_version(self) -> str:
+        """OCPP version for spawned chargers ("1.6" default, or "2.0.1")."""
+        return str(self.params.get("ocpp_version") or "1.6")
+
+    async def _spawn_charger(self, cp_id: str, profile_name: Optional[str] = None,
                               quirks: Optional[QuirkConfig] = None,
-                              ocpp_version: str = "1.6") -> Optional[str]:
+                              ocpp_version: Optional[str] = None) -> Optional[str]:
         if self._cancelled:
             return None
-        charger = await self.farm.spawn_charger(cp_id, profile_name, quirks=quirks)
+        version = str(ocpp_version or self.ocpp_version)
+        profile_name = profile_name or self.params.get("profile") or DEFAULT_PROFILES.get(
+            version, DEFAULT_PROFILES["1.6"])
+        charger = await self.farm.spawn_charger(
+            cp_id, profile_name, ocpp_version=version, quirks=quirks)
         if charger:
             self._spawned_ids.append(cp_id)
         return cp_id if charger else None
 
     async def _cleanup_spawned(self):
-        for cp_id in self._spawned_ids:
+        ids, self._spawned_ids = self._spawned_ids, []   # idempotent
+        for cp_id in ids:
             try:
                 await self.farm.stop_charger(cp_id)
             except Exception:
                 pass
+
+    async def cleanup(self):
+        """Stop the chargers this scenario spawned (pass keep_chargers=true to keep them)."""
+        if not self.params.get("keep_chargers"):
+            await self._cleanup_spawned()
 
     def _finish(self, success: bool = True, error: str = None):
         self._result.ended_at = time.time()
         self._result.success = success
         self._result.error = error
         self._result.metrics_snapshot = farm_metrics.snapshot()
-        self._result.charger_count = len(self._spawned_ids)
+        self._result.charger_count = max(self._result.charger_count or 0, len(self._spawned_ids))
         return self._result

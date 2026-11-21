@@ -82,14 +82,22 @@ class ChargerFarm:
         site_id: str = "default",
         pnc_enabled: bool = False,
     ) -> Optional[object]:
-        if cp_id in self.chargers:
-            return self.chargers[cp_id]
-
         profile_name = profile_name or self.settings.get("default_profile", "ENC-DCL120B-16")
         try:
             profile = get_profile(profile_name)
         except KeyError:
             return None
+
+        existing = self.chargers.get(cp_id)
+        if existing is not None:
+            wanted = ocpp_version or profile.ocpp_version.value
+            have = "2.0.1" if isinstance(existing, VirtualCharger201) else "1.6"
+            if wanted == have:
+                return existing
+            # Same id requested with a different OCPP version: replace it, do not
+            # silently hand back a charger speaking the wrong protocol.
+            farm_metrics.log_event("warning", cp_id, f"Replacing OCPP {have} charger with OCPP {wanted}")
+            await self.stop_charger(cp_id)
 
         if quirks is None:
             quirks = MAXPOWER_QUIRKS if self.settings.get("default_quirks_enabled", True) else NO_QUIRKS

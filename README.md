@@ -11,7 +11,7 @@ pip install -r requirements.txt
 python control.py
 ```
 
-Open [http://localhost:8086](http://localhost:8086) in your browser.
+Open [http://localhost:8087](http://localhost:8087) in your browser.
 
 ### Docker
 
@@ -71,7 +71,8 @@ Environment variables (or set via UI Settings):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8086` | HTTP port |
+| `FARM_UI_PORT` | `8087` | HTTP port (wins over `PORT`) |
+| `PORT` | `8087` | HTTP port fallback |
 | `OCPP16_URL` | `ws://localhost:9100/ocpp` | OCPP 1.6j server WebSocket URL |
 | `OCPP201_URL` | `ws://localhost:9201/ocpp` | OCPP 2.0.1 server WebSocket URL |
 | `CPO_API_URL` | _(empty)_ | CPO API for session validation in reports |
@@ -92,8 +93,9 @@ Environment variables (or set via UI Settings):
 | `POST` | `/api/chargers/{cp_id}/error` | Inject error |
 | `POST` | `/api/chargers/{cp_id}/v2g` | Start/stop V2G discharge |
 | `POST` | `/api/chargers/{cp_id}/pnc` | Trigger Plug & Charge |
+| `GET` | `/health` | Liveness check, returns `{"status":"ok"}` |
 | `GET` | `/api/scenarios` | List scenarios |
-| `POST` | `/api/scenarios/{name}` | Run a scenario |
+| `POST` | `/api/scenarios/{name}` | Run a scenario. JSON body: `intensity`, optional `ocpp_version` (`1.6` default, or `2.0.1`), `params`. Alias: `/api/scenario/{name}/start` |
 | `DELETE` | `/api/scenarios/active` | Stop running scenario |
 | `GET` | `/api/metrics` | Current metrics snapshot |
 | `GET` | `/api/metrics/stream` | SSE metrics stream |
@@ -134,7 +136,7 @@ virtual-charger/
 1. Fork the repo
 2. Create a feature branch
 3. Make your changes (don't break existing Python modules)
-4. Test with `python control.py` and verify the UI at `:8086`
+4. Test with `python control.py` and verify the UI at `:8087`
 5. Submit a PR
 
 ## License
