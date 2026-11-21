@@ -237,6 +237,10 @@ async def api_run_scenario(name: str, request: Request):
         except Exception as e:
             farm_metrics.log_event("error", f"scenario:{name}", f"Scenario failed: {e}")
         finally:
+            try:
+                await asyncio.shield(scenario.cleanup())
+            except Exception:
+                pass
             farm.active_scenario = None
             farm.scenario_task = None
 
@@ -248,12 +252,14 @@ async def api_run_scenario(name: str, request: Request):
 async def api_stop_scenario():
     if not farm.active_scenario:
         raise HTTPException(404, "No active scenario")
-    farm.active_scenario.cancel()
+    scenario = farm.active_scenario
+    scenario.cancel()
     if farm.scenario_task:
         farm.scenario_task.cancel()
-    name = farm.active_scenario.name
+    name = scenario.name
     farm.active_scenario = None
     farm.scenario_task = None
+    await scenario.cleanup()          # DELETE used to leave every spawned charger connected
     return {"stopped": name}
 
 

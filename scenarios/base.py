@@ -102,16 +102,22 @@ class BaseScenario:
         return cp_id if charger else None
 
     async def _cleanup_spawned(self):
-        for cp_id in self._spawned_ids:
+        ids, self._spawned_ids = self._spawned_ids, []   # idempotent
+        for cp_id in ids:
             try:
                 await self.farm.stop_charger(cp_id)
             except Exception:
                 pass
+
+    async def cleanup(self):
+        """Stop the chargers this scenario spawned (pass keep_chargers=true to keep them)."""
+        if not self.params.get("keep_chargers"):
+            await self._cleanup_spawned()
 
     def _finish(self, success: bool = True, error: str = None):
         self._result.ended_at = time.time()
         self._result.success = success
         self._result.error = error
         self._result.metrics_snapshot = farm_metrics.snapshot()
-        self._result.charger_count = len(self._spawned_ids)
+        self._result.charger_count = max(self._result.charger_count or 0, len(self._spawned_ids))
         return self._result

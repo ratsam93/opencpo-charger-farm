@@ -429,6 +429,10 @@ async def api_scenario_start(name: str, request: Request):
         except Exception as e:
             farm_metrics.log_event("error", f"scenario:{name}", str(e))
         finally:
+            try:
+                await asyncio.shield(scenario.cleanup())
+            except Exception:
+                pass
             farm.active_scenario = None
             farm.scenario_task = None
 
